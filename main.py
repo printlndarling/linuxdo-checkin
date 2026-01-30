@@ -303,7 +303,9 @@ class LinuxDoBrowser:
         try:
             login_res = self.login()
             if not login_res:  # 登录
-                logger.warning("登录验证失败")
+                logger.warning("登录验证失败，跳过浏览任务")
+                self.send_notifications(False, success=False)
+                return
 
             if BROWSE_ENABLED:
                 click_topic_res = self.click_topic()  # 点击主题
@@ -312,7 +314,7 @@ class LinuxDoBrowser:
                     return
                 logger.info("完成浏览任务")
 
-            self.send_notifications(BROWSE_ENABLED)  # 发送通知
+            self.send_notifications(BROWSE_ENABLED, success=True)  # 发送通知
         finally:
             try:
                 self.page.close()
@@ -360,10 +362,13 @@ class LinuxDoBrowser:
         print("--------------Connect Info-----------------")
         print(tabulate(info, headers=["项目", "当前", "要求"], tablefmt="pretty"))
 
-    def send_notifications(self, browse_enabled):
-        status_msg = f"✅每日登录成功: {USERNAME}"
-        if browse_enabled:
-            status_msg += " + 浏览任务完成"
+    def send_notifications(self, browse_enabled, success=True):
+        if success:
+            status_msg = f"✅每日登录成功: {USERNAME}"
+            if browse_enabled:
+                status_msg += " + 浏览任务完成"
+        else:
+            status_msg = f"❌每日登录失败: {USERNAME}"
 
         if GOTIFY_URL and GOTIFY_TOKEN:
             try:
