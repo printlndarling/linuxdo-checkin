@@ -112,9 +112,53 @@ class LinuxDoBrowser:
             "X-Requested-With": "XMLHttpRequest",
             "Referer": LOGIN_URL,
         }
-        resp_csrf = self.session.get(CSRF_URL, headers=headers, impersonate="chrome136")
-        csrf_data = resp_csrf.json()
-        csrf_token = csrf_data.get("csrf")
+
+        @retry_decorator()
+        def fetch_csrf_token():
+            resp_csrf = self.session.get(
+                CSRF_URL, headers=headers, impersonate="chrome136"
+            )
+            if resp_csrf.status_code != 200:
+                logger.warning(
+                    f"CSRF 请求返回状态码异常: {resp_csrf.status_code}, Content-Type: {resp_csrf.headers.get('Content-Type')}"
+                )
+                logger.warning(f"CSRF 响应前200字符: {resp_csrf.text[:200]}")
+                return None
+            try:
+                csrf_data = resp_csrf.json()
+                return csrf_data.get("csrf")
+            except Exception as e:
+                logger.warning(f"CSRF JSON 解析失败: {str(e)}")
+                logger.warning(
+                    f"CSRF 响应前200字符: {resp_csrf.text[:200]}"
+                )
+                return None
+
+        csrf_token = fetch_csrf_token()
+
+        if not csrf_token:
+            logger.warning("CSRF token 获取失败，尝试从登录页解析...")
+            try:
+                resp_login_page = self.session.get(
+                    LOGIN_URL, headers=headers, impersonate="chrome136"
+                )
+                if resp_login_page.status_code == 200:
+                    soup = BeautifulSoup(resp_login_page.text, "html.parser")
+                    meta_tag = soup.find("meta", {"name": "csrf-token"})
+                    if meta_tag and meta_tag.get("content"):
+                        csrf_token = meta_tag.get("content")
+                        logger.info("从登录页解析到 CSRF token")
+                else:
+                    logger.warning(
+                        f"登录页请求失败，状态码: {resp_login_page.status_code}"
+                    )
+            except Exception as e:
+                logger.warning(f"登录页解析 CSRF token 失败: {str(e)}")
+
+        if not csrf_token:
+            logger.error("CSRF token 获取失败，跳过本次登录")
+            return False
+
         logger.info(f"CSRF Token obtained: {csrf_token[:10]}...")
 
         # Step 2: Login
