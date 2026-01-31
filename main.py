@@ -123,6 +123,12 @@ class LinuxDoBrowser:
                     f"CSRF 请求返回状态码异常: {resp_csrf.status_code}, Content-Type: {resp_csrf.headers.get('Content-Type')}"
                 )
                 logger.warning(f"CSRF 响应前200字符: {resp_csrf.text[:200]}")
+                if (
+                    resp_csrf.status_code == 403
+                    and "Just a moment" in resp_csrf.text
+                ):
+                    logger.warning("疑似触发 CF 等待页，延时 6s 后重试")
+                    time.sleep(6)
                 return None
             try:
                 csrf_data = resp_csrf.json()
