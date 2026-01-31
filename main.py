@@ -159,7 +159,105 @@ class LinuxDoBrowser:
                 logger.warning(f"登录页解析 CSRF token 失败: {str(e)}")
 
         if not csrf_token:
-            logger.error("CSRF token 获取失败，跳过本次登录")
+            logger.error("CSRF token 获取失败，切换为浏览器登录流程")
+
+            def try_get_input(selectors):
+                for selector in selectors:
+                    try:
+                        ele = self.page.ele(selector)
+                        if ele:
+                            return ele
+                    except Exception:
+                        continue
+                return None
+
+            def browser_login():
+                try:
+                    self.page.get(LOGIN_URL)
+                except Exception as e:
+                    logger.error(f"打开登录页失败: {str(e)}")
+                    return False
+
+                for _ in range(30):
+                    if "Just a moment" not in self.page.title and "Just a moment" not in self.page.html:
+                        break
+                    time.sleep(1)
+
+                login_input = try_get_input(
+                    [
+                        "input#login-account-name",
+                        "input[name=login]",
+                        "input[name=username]",
+                        "input[type=email]",
+                        "input[type=text]",
+                    ]
+                )
+                password_input = try_get_input(
+                    [
+                        "input#login-account-password",
+                        "input[name=password]",
+                        "input[type=password]",
+                    ]
+                )
+                if not login_input or not password_input:
+                    logger.error("浏览器登录失败：未找到账号或密码输入框")
+                    return False
+
+                try:
+                    login_input.input(USERNAME)
+                    password_input.input(PASSWORD)
+                except Exception as e:
+                    logger.error(f"输入账号密码失败: {str(e)}")
+                    return False
+
+                login_button = try_get_input(
+                    [
+                        "button#login-button",
+                        "button[type=submit]",
+                        "button:has-text('Log In')",
+                        "button:has-text('登录')",
+                    ]
+                )
+                if login_button:
+                    try:
+                        login_button.click()
+                    except Exception as e:
+                        logger.error(f"点击登录按钮失败: {str(e)}")
+                        return False
+                else:
+                    logger.error("未找到登录按钮")
+                    return False
+
+                time.sleep(5)
+                try:
+                    if self.page.ele("@id=current-user") or "avatar" in self.page.html:
+                        logger.info("浏览器登录成功")
+                        return True
+                except Exception:
+                    pass
+
+                logger.error("浏览器登录失败：未检测到登录态")
+                return False
+
+            if browser_login():
+                try:
+                    cookies = None
+                    try:
+                        cookies = self.page.cookies()
+                    except Exception:
+                        cookies = getattr(self.page, "cookies", None)
+                    if cookies:
+                        for cookie in cookies:
+                            self.session.cookies.set(
+                                cookie.get("name"),
+                                cookie.get("value"),
+                                domain=cookie.get("domain"),
+                                path=cookie.get("path", "/"),
+                            )
+                except Exception as e:
+                    logger.warning(f"同步浏览器 Cookie 失败: {str(e)}")
+                return True
+
             return False
 
         logger.info(f"CSRF Token obtained: {csrf_token[:10]}...")
